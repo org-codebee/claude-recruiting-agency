@@ -2,20 +2,41 @@
 set -euo pipefail
 
 # ─── Recruiting Agency — Installer ───────────────────────────────────────────
-# Installs the /recruiting slash command and its three core agents
-# into Claude Code (project-level, user-level, or both).
+# Installs the /recruiting slash command and its three core agents.
+#
+# Works in two modes:
+#   LOCAL  — run from a cloned repo (files copied from disk)
+#   REMOTE — piped from GitHub (files downloaded via curl)
+#
+# Remote usage:
+#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash -s -- user
+#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash -s -- project ~/my-app
 # ──────────────────────────────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ─── Configuration ───────────────────────────────────────────────────────────
 
-# Colors (disabled when not a terminal)
+GITHUB_OWNER="${RECRUITING_GITHUB_OWNER:-bheneka}"
+GITHUB_REPO="${RECRUITING_GITHUB_REPO:-recruiting-agency}"
+GITHUB_BRANCH="${RECRUITING_GITHUB_BRANCH:-main}"
+GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
+
+# Files to install (relative to repo root)
+declare -A FILES=(
+  [".claude/agents/victoria.md"]=".claude/agents/victoria.md"
+  [".claude/agents/nathan.md"]=".claude/agents/nathan.md"
+  [".claude/agents/sophia.md"]=".claude/agents/sophia.md"
+  [".claude/commands/recruiting.md"]=".claude/commands/recruiting.md"
+)
+
+AGENTS=("victoria.md" "nathan.md" "sophia.md")
+COMMAND_FILE="recruiting.md"
+
+# ─── Colors ──────────────────────────────────────────────────────────────────
+
 if [[ -t 1 ]]; then
-  BOLD="\033[1m"
-  GREEN="\033[0;32m"
-  YELLOW="\033[0;33m"
-  RED="\033[0;31m"
-  CYAN="\033[0;36m"
-  RESET="\033[0m"
+  BOLD="\033[1m" GREEN="\033[0;32m" YELLOW="\033[0;33m"
+  RED="\033[0;31m" CYAN="\033[0;36m" RESET="\033[0m"
 else
   BOLD="" GREEN="" YELLOW="" RED="" CYAN="" RESET=""
 fi
@@ -29,13 +50,88 @@ error() { printf "${RED}[ERROR]${RESET} %s\n" "$1" >&2; }
 
 confirm() {
   local prompt="$1"
+  # When piped (non-interactive), auto-confirm
+  if [[ ! -t 0 ]]; then
+    return 0
+  fi
   local reply
   printf "${BOLD}%s [y/N]${RESET} " "$prompt"
   read -r reply
   [[ "$reply" =~ ^[Yy]$ ]]
 }
 
-copy_file() {
+command_exists() {
+  command -v "$1" > /dev/null 2>&1
+}
+
+# ─── Mode Detection ─────────────────────────────────────────────────────────
+
+SCRIPT_DIR=""
+MODE="remote"
+TMPDIR_CREATED=""
+
+# Detect if running from a local clone
+if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
+  CANDIDATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -f "$CANDIDATE_DIR/.claude/agents/victoria.md" ]]; then
+    SCRIPT_DIR="$CANDIDATE_DIR"
+    MODE="local"
+  fi
+fi
+
+# ─── File Operations ────────────────────────────────────────────────────────
+
+download_file() {
+  local url="$1" dest="$2"
+  if command_exists curl; then
+    curl -fsSL --retry 3 --retry-delay 1 -o "$dest" "$url"
+  elif command_exists wget; then
+    wget -q -O "$dest" "$url"
+  else
+    error "Neither curl nor wget found. Install one and retry."
+    exit 1
+  fi
+}
+
+# Download all source files to a temp directory
+fetch_remote_files() {
+  TMPDIR_CREATED="$(mktemp -d)"
+  trap 'rm -rf "$TMPDIR_CREATED"' EXIT
+
+  info "Downloading files from GitHub (${GITHUB_OWNER}/${GITHUB_REPO}@${GITHUB_BRANCH})..."
+
+  local failed=0
+  for src_path in "${!FILES[@]}"; do
+    local url="${GITHUB_RAW_BASE}/${src_path}"
+    local dest="${TMPDIR_CREATED}/${src_path}"
+    mkdir -p "$(dirname "$dest")"
+
+    if download_file "$url" "$dest"; then
+      ok "Downloaded: $src_path"
+    else
+      error "Failed to download: $url"
+      failed=1
+    fi
+  done
+
+  if [[ "$failed" -eq 1 ]]; then
+    error "Some files could not be downloaded. Check the repository URL and branch."
+    error "URL base: $GITHUB_RAW_BASE"
+    exit 1
+  fi
+
+  SCRIPT_DIR="$TMPDIR_CREATED"
+}
+
+# Get the source directory (local or temp from download)
+get_source_dir() {
+  if [[ "$MODE" == "remote" ]]; then
+    fetch_remote_files
+  fi
+}
+
+# Install a single file with backup and diff check
+install_file() {
   local src="$1" dest="$2"
   local dest_dir
   dest_dir="$(dirname "$dest")"
@@ -56,7 +152,7 @@ copy_file() {
         return 0
       fi
     fi
-    cp "$src" "$dest.bak"
+    cp "$dest" "$dest.bak"
     info "Backup created: $dest.bak"
   fi
 
@@ -64,39 +160,16 @@ copy_file() {
   ok "Installed: $dest"
 }
 
-# ─── Source files ────────────────────────────────────────────────────────────
-
-AGENTS=("victoria.md" "nathan.md" "sophia.md")
-COMMAND="recruiting.md"
-
-validate_source_files() {
-  local missing=0
-  for agent in "${AGENTS[@]}"; do
-    if [[ ! -f "$SCRIPT_DIR/.claude/agents/$agent" ]]; then
-      error "Missing source: .claude/agents/$agent"
-      missing=1
-    fi
-  done
-  if [[ ! -f "$SCRIPT_DIR/.claude/commands/$COMMAND" ]]; then
-    error "Missing source: .claude/commands/$COMMAND"
-    missing=1
-  fi
-  if [[ "$missing" -eq 1 ]]; then
-    error "Source files incomplete. Run this script from the repository root."
-    exit 1
-  fi
-}
-
-# ─── Install functions ───────────────────────────────────────────────────────
+# ─── Install Functions ───────────────────────────────────────────────────────
 
 install_project() {
   local target="$1"
   info "Installing to project: $target"
 
   for agent in "${AGENTS[@]}"; do
-    copy_file "$SCRIPT_DIR/.claude/agents/$agent" "$target/.claude/agents/$agent"
+    install_file "$SCRIPT_DIR/.claude/agents/$agent" "$target/.claude/agents/$agent"
   done
-  copy_file "$SCRIPT_DIR/.claude/commands/$COMMAND" "$target/.claude/commands/$COMMAND"
+  install_file "$SCRIPT_DIR/.claude/commands/$COMMAND_FILE" "$target/.claude/commands/$COMMAND_FILE"
 
   ok "Project installation complete: $target"
 }
@@ -106,9 +179,9 @@ install_user() {
   info "Installing to user config: $home_claude"
 
   for agent in "${AGENTS[@]}"; do
-    copy_file "$SCRIPT_DIR/.claude/agents/$agent" "$home_claude/agents/$agent"
+    install_file "$SCRIPT_DIR/.claude/agents/$agent" "$home_claude/agents/$agent"
   done
-  copy_file "$SCRIPT_DIR/.claude/commands/$COMMAND" "$home_claude/commands/$COMMAND"
+  install_file "$SCRIPT_DIR/.claude/commands/$COMMAND_FILE" "$home_claude/commands/$COMMAND_FILE"
 
   ok "User installation complete: $home_claude"
 }
@@ -123,12 +196,11 @@ uninstall_project() {
       ok "Removed: $target/.claude/agents/$agent"
     fi
   done
-  if [[ -f "$target/.claude/commands/$COMMAND" ]]; then
-    rm "$target/.claude/commands/$COMMAND"
-    ok "Removed: $target/.claude/commands/$COMMAND"
+  if [[ -f "$target/.claude/commands/$COMMAND_FILE" ]]; then
+    rm "$target/.claude/commands/$COMMAND_FILE"
+    ok "Removed: $target/.claude/commands/$COMMAND_FILE"
   fi
 
-  # Clean up empty directories
   rmdir "$target/.claude/agents" 2>/dev/null && info "Removed empty: $target/.claude/agents/" || true
   rmdir "$target/.claude/commands" 2>/dev/null && info "Removed empty: $target/.claude/commands/" || true
   rmdir "$target/.claude" 2>/dev/null && info "Removed empty: $target/.claude/" || true
@@ -146,45 +218,12 @@ uninstall_user() {
       ok "Removed: $home_claude/agents/$agent"
     fi
   done
-  if [[ -f "$home_claude/commands/$COMMAND" ]]; then
-    rm "$home_claude/commands/$COMMAND"
-    ok "Removed: $home_claude/commands/$COMMAND"
+  if [[ -f "$home_claude/commands/$COMMAND_FILE" ]]; then
+    rm "$home_claude/commands/$COMMAND_FILE"
+    ok "Removed: $home_claude/commands/$COMMAND_FILE"
   fi
 
   ok "User uninstall complete."
-}
-
-# ─── Usage ───────────────────────────────────────────────────────────────────
-
-usage() {
-  cat <<EOF
-${BOLD}Recruiting Agency — Installer${RESET}
-
-${BOLD}Usage:${RESET}
-  ./install.sh [options] <command>
-
-${BOLD}Commands:${RESET}
-  project [path]    Install into a project directory (default: current directory)
-  user              Install into ~/.claude/ (available in all projects)
-  both [path]       Install into both project and user scope
-  uninstall [path]  Remove from project directory
-  uninstall-user    Remove from ~/.claude/
-  uninstall-all [p] Remove from both project and user scope
-  status [path]     Show installation status
-
-${BOLD}Options:${RESET}
-  -f, --force       Overwrite existing files without prompting
-  -h, --help        Show this help message
-
-${BOLD}Examples:${RESET}
-  ./install.sh project                    # Install to current directory
-  ./install.sh project ~/my-app           # Install to specific project
-  ./install.sh user                       # Install globally
-  ./install.sh both                       # Install everywhere
-  ./install.sh -f project                 # Force overwrite
-  ./install.sh uninstall ~/my-app         # Remove from project
-  ./install.sh status                     # Check what's installed
-EOF
 }
 
 # ─── Status ──────────────────────────────────────────────────────────────────
@@ -204,10 +243,10 @@ show_status() {
       printf "  ${RED}✗${RESET} agents/%s\n" "$agent"
     fi
   done
-  if [[ -f "$target/.claude/commands/$COMMAND" ]]; then
-    printf "  ${GREEN}✓${RESET} commands/%s\n" "$COMMAND"
+  if [[ -f "$target/.claude/commands/$COMMAND_FILE" ]]; then
+    printf "  ${GREEN}✓${RESET} commands/%s\n" "$COMMAND_FILE"
   else
-    printf "  ${RED}✗${RESET} commands/%s\n" "$COMMAND"
+    printf "  ${RED}✗${RESET} commands/%s\n" "$COMMAND_FILE"
   fi
 
   printf "\n${BOLD}User: %s${RESET}\n" "$home_claude"
@@ -218,12 +257,62 @@ show_status() {
       printf "  ${RED}✗${RESET} agents/%s\n" "$agent"
     fi
   done
-  if [[ -f "$home_claude/commands/$COMMAND" ]]; then
-    printf "  ${GREEN}✓${RESET} commands/%s\n" "$COMMAND"
+  if [[ -f "$home_claude/commands/$COMMAND_FILE" ]]; then
+    printf "  ${GREEN}✓${RESET} commands/%s\n" "$COMMAND_FILE"
   else
-    printf "  ${RED}✗${RESET} commands/%s\n" "$COMMAND"
+    printf "  ${RED}✗${RESET} commands/%s\n" "$COMMAND_FILE"
   fi
   printf "\n"
+}
+
+# ─── Usage ───────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+${BOLD}Recruiting Agency — Installer${RESET}
+
+${BOLD}Remote install (no git clone needed):${RESET}
+  curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/install.sh | bash
+  curl -fsSL .../install.sh | bash -s -- user
+  curl -fsSL .../install.sh | bash -s -- project ~/my-app
+
+${BOLD}Local install (from cloned repo):${RESET}
+  ./install.sh [options] <command>
+
+${BOLD}Commands:${RESET}
+  project [path]    Install into a project directory (default: current directory)
+  user              Install into ~/.claude/ (available in all projects)
+  both [path]       Install into both project and user scope
+  uninstall [path]  Remove from project directory
+  uninstall-user    Remove from ~/.claude/
+  uninstall-all [p] Remove from both project and user scope
+  status [path]     Show installation status
+
+${BOLD}Options:${RESET}
+  -f, --force       Overwrite existing files without prompting
+  -h, --help        Show this help message
+
+${BOLD}Environment variables:${RESET}
+  RECRUITING_GITHUB_OWNER   GitHub owner/org (default: ${GITHUB_OWNER})
+  RECRUITING_GITHUB_REPO    Repository name  (default: ${GITHUB_REPO})
+  RECRUITING_GITHUB_BRANCH  Branch to fetch  (default: ${GITHUB_BRANCH})
+
+${BOLD}Examples:${RESET}
+  # Remote — install globally
+  curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/install.sh | bash -s -- user
+
+  # Remote — install into a specific project
+  curl -fsSL .../install.sh | bash -s -- project ~/my-app
+
+  # Remote — force overwrite
+  curl -fsSL .../install.sh | bash -s -- -f both
+
+  # Local
+  ./install.sh project
+  ./install.sh user
+  ./install.sh -f both
+  ./install.sh status
+EOF
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -248,7 +337,40 @@ else
   TARGET="$(pwd)"
 fi
 
-validate_source_files
+# For status and uninstall, no source files needed
+case "$COMMAND_ARG" in
+  status)
+    show_status "$TARGET"
+    printf "${GREEN}${BOLD}Done.${RESET}\n"
+    exit 0
+    ;;
+  uninstall)
+    uninstall_project "$TARGET"
+    printf "\n${GREEN}${BOLD}Done.${RESET}\n"
+    exit 0
+    ;;
+  uninstall-user)
+    uninstall_user
+    printf "\n${GREEN}${BOLD}Done.${RESET}\n"
+    exit 0
+    ;;
+  uninstall-all)
+    uninstall_project "$TARGET"
+    printf "\n"
+    uninstall_user
+    printf "\n${GREEN}${BOLD}Done.${RESET}\n"
+    exit 0
+    ;;
+esac
+
+# For install operations, ensure source files are available
+get_source_dir
+
+if [[ "$MODE" == "local" ]]; then
+  info "Mode: local (installing from cloned repo)"
+else
+  info "Mode: remote (downloaded from GitHub)"
+fi
 
 case "$COMMAND_ARG" in
   project)
@@ -262,37 +384,30 @@ case "$COMMAND_ARG" in
     printf "\n"
     install_user
     ;;
-  uninstall)
-    uninstall_project "$TARGET"
-    ;;
-  uninstall-user)
-    uninstall_user
-    ;;
-  uninstall-all)
-    uninstall_project "$TARGET"
-    printf "\n"
-    uninstall_user
-    ;;
-  status)
-    show_status "$TARGET"
-    ;;
   "")
-    printf "\n${BOLD}Recruiting Agency — Installer${RESET}\n\n"
-    printf "Where would you like to install?\n\n"
-    printf "  ${BOLD}1)${RESET} Project only  — %s/.claude/\n" "$TARGET"
-    printf "  ${BOLD}2)${RESET} User only     — %s/.claude/\n" "$HOME"
-    printf "  ${BOLD}3)${RESET} Both\n"
-    printf "  ${BOLD}4)${RESET} Cancel\n\n"
-    printf "${BOLD}Choice [1-4]:${RESET} "
-    read -r choice
-    printf "\n"
-    case "$choice" in
-      1) install_project "$TARGET" ;;
-      2) install_user ;;
-      3) install_project "$TARGET"; printf "\n"; install_user ;;
-      4) info "Cancelled."; exit 0 ;;
-      *) error "Invalid choice."; exit 1 ;;
-    esac
+    # Interactive mode — only works if stdin is a terminal
+    if [[ -t 0 ]]; then
+      printf "\n${BOLD}Recruiting Agency — Installer${RESET}\n\n"
+      printf "Where would you like to install?\n\n"
+      printf "  ${BOLD}1)${RESET} Project only  — %s/.claude/\n" "$TARGET"
+      printf "  ${BOLD}2)${RESET} User only     — %s/.claude/\n" "$HOME"
+      printf "  ${BOLD}3)${RESET} Both\n"
+      printf "  ${BOLD}4)${RESET} Cancel\n\n"
+      printf "${BOLD}Choice [1-4]:${RESET} "
+      read -r choice
+      printf "\n"
+      case "$choice" in
+        1) install_project "$TARGET" ;;
+        2) install_user ;;
+        3) install_project "$TARGET"; printf "\n"; install_user ;;
+        4) info "Cancelled."; exit 0 ;;
+        *) error "Invalid choice."; exit 1 ;;
+      esac
+    else
+      # Non-interactive (piped) without command → default to user install
+      info "No command specified in non-interactive mode. Defaulting to 'user' install."
+      install_user
+    fi
     ;;
   *)
     error "Unknown command: $COMMAND_ARG"

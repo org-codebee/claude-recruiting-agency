@@ -4,39 +4,41 @@ A self-organizing multi-agent team that assembles specialized AI agent teams on 
 
 ## Installation
 
-### Quick Install (Interactive)
+### One-Liner (no git clone needed)
 
 ```bash
-./install.sh
-```
-
-The installer prompts you to choose: project-level, user-level, or both.
-
-### Targeted Install
-
-```bash
-# Install into a specific project
-./install.sh project ~/my-app
-
 # Install globally (available in all projects)
-./install.sh user
+curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- user
 
-# Install both
-./install.sh both
+# Install into current project
+curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- project
+
+# Install into a specific project
+curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- project ~/my-app
+
+# Install both (project + global)
+curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- both
 
 # Force overwrite without prompts
-./install.sh -f project
+curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- -f user
 ```
 
-### Manual Install
+The script downloads all files from GitHub into a temp directory, installs them, and cleans up.
+
+### From Cloned Repo
 
 ```bash
-# Project-level
-cp -r .claude/ /path/to/your/project/.claude/
+git clone https://github.com/bheneka/recruiting-agency.git
+cd recruiting-agency
 
-# Global
-cp .claude/agents/*.md ~/.claude/agents/
-cp .claude/commands/recruiting.md ~/.claude/commands/recruiting.md
+# Interactive — prompts where to install
+./install.sh
+
+# Or directly
+./install.sh user              # global
+./install.sh project ~/my-app  # specific project
+./install.sh both              # both
+./install.sh -f project        # force overwrite
 ```
 
 ### Management
@@ -51,7 +53,18 @@ cp .claude/commands/recruiting.md ~/.claude/commands/recruiting.md
 ./install.sh uninstall-all       # both
 ```
 
-No dependencies, no build step.
+### Environment Variables (optional)
+
+Override the GitHub source for forks or private repos:
+
+```bash
+RECRUITING_GITHUB_OWNER=my-org \
+RECRUITING_GITHUB_REPO=my-fork \
+RECRUITING_GITHUB_BRANCH=develop \
+  curl -fsSL https://raw.githubusercontent.com/my-org/my-fork/develop/install.sh | bash -s -- user
+```
+
+No dependencies beyond `curl` (or `wget`). No build step.
 
 ## Usage
 
