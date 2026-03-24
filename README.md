@@ -8,19 +8,19 @@ A self-organizing multi-agent team that assembles specialized AI agent teams on 
 
 ```bash
 # Install globally (available in all projects)
-curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- user
+curl -fsSL https://raw.githubusercontent.com/org-codebee/claude-recruiting-agency/main/install.sh | bash -s -- user
 
 # Install into current project
-curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- project
+curl -fsSL https://raw.githubusercontent.com/org-codebee/claude-recruiting-agency/main/install.sh | bash -s -- project
 
 # Install into a specific project
-curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- project ~/my-app
+curl -fsSL https://raw.githubusercontent.com/org-codebee/claude-recruiting-agency/main/install.sh | bash -s -- project ~/my-app
 
 # Install both (project + global)
-curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- both
+curl -fsSL https://raw.githubusercontent.com/org-codebee/claude-recruiting-agency/main/install.sh | bash -s -- both
 
 # Force overwrite without prompts
-curl -fsSL https://raw.githubusercontent.com/bheneka/recruiting-agency/main/install.sh | bash -s -- -f user
+curl -fsSL https://raw.githubusercontent.com/org-codebee/claude-recruiting-agency/main/install.sh | bash -s -- -f user
 ```
 
 The script downloads all files from GitHub into a temp directory, installs them, and cleans up.
@@ -28,7 +28,7 @@ The script downloads all files from GitHub into a temp directory, installs them,
 ### From Cloned Repo
 
 ```bash
-git clone https://github.com/bheneka/recruiting-agency.git
+git clone https://github.com/org-codebee/claude-recruiting-agency.git
 cd recruiting-agency
 
 # Interactive — prompts where to install

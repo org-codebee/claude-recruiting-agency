@@ -16,8 +16,8 @@ set -euo pipefail
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-GITHUB_OWNER="${RECRUITING_GITHUB_OWNER:-bheneka}"
-GITHUB_REPO="${RECRUITING_GITHUB_REPO:-recruiting-agency}"
+GITHUB_OWNER="${RECRUITING_GITHUB_OWNER:-org-codebee}"
+GITHUB_REPO="${RECRUITING_GITHUB_REPO:-claude-recruiting-agency}"
 GITHUB_BRANCH="${RECRUITING_GITHUB_BRANCH:-main}"
 GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
